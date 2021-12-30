@@ -16,6 +16,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedList;
+import java.util.List;
 
 /**
  * @author <a href="https://github.com/binarywang">Binary Wang</a>
@@ -165,6 +167,77 @@ public class WxMaMessage implements Serializable {
   @XStreamConverter(value = XStreamCDataConverter.class)
   private String openPid;
 
+  /**
+   * 订阅消息时，服务器收到的通知
+   * https://developers.weixin.qq.com/miniprogram/dev/framework/open-ability/subscribe-message.html
+   * 当只有一条订阅模板的时候，目前生产返回json格式的字段和文档不一致，少了SubscribeMsgPopupEvent这一层而且不是数组是对象
+   */
+  @SerializedName("SubscribeMsgPopupEvent")
+  @XStreamAlias("SubscribeMsgPopupEvent")
+  private List<SubscribeMsgPopupEvent> subscribeMsgPopupEvent = new LinkedList<>();
+
+  /**
+   * 不要直接使用这个字段，该字段是为了兼容，请使用 `subscribeMsgPopupEvent`
+   * 订阅消息事件推送 当小程序只订阅了一个模板，并且服务器的推送消息格式选择的是JSON的时候，实际的推送数据和官网文档不一致，这里做一个兼容
+   * 文档的格式是这样
+   * {
+   *   "ToUserName": "gh_123456789abc",
+   *   "FromUserName": "o7esq5OI1Uej6Xixw1lA2H7XDVbc",
+   *   "CreateTime": "1620973045",
+   *   "MsgType": "event",
+   *   "Event": "subscribe_msg_popup_event",
+   *   "SubscribeMsgPopupEvent": [   {
+   *         "TemplateId": "hD-ixGOhYmUfjOnI8MCzQMPshzGVeux_2vzyvQu7O68",
+   *         "SubscribeStatusString": "accept",
+   *         "PopupScene": "0"
+   *     }]
+   *  }
+   *  实际推送的是
+   *  {
+   *   "ToUserName": "gh_123456789abc",
+   *   "FromUserName": "o7esq5OI1Uej6Xixw1lA2H7XDVbc",
+   *   "CreateTime": "1620973045",
+   *   "MsgType": "event",
+   *   "Event": "subscribe_msg_popup_event",
+   *   "List": {
+   *         "TemplateId": "hD-ixGOhYmUfjOnI8MCzQMPshzGVeux_2vzyvQu7O68",
+   *         "SubscribeStatusString": "accept",
+   *         "PopupScene": "0"
+   *     }
+   *  }
+   */
+  @SerializedName("List")
+  private SubscribeMsgPopupEvent oneSubscribeMsgInJson;
+
+  @Data
+  @XStreamAlias("List")
+  public static class SubscribeMsgPopupEvent implements Serializable{
+    private static final long serialVersionUID = 6787700849708909964L;
+
+    /**
+     * 模板id
+     */
+    @SerializedName("TemplateId")
+    @XStreamAlias("TemplateId")
+    @XStreamConverter(value = XStreamCDataConverter.class)
+    private String templateId;
+
+    /**
+     * 订阅结果（accept接收；reject拒收）
+     */
+    @SerializedName("SubscribeStatusString")
+    @XStreamAlias("SubscribeStatusString")
+    @XStreamConverter(value = XStreamCDataConverter.class)
+    private String subscribeStatusString;
+
+    /**
+     * 弹框场景，0代表在小程序页面内
+     */
+    @SerializedName("PopupScene")
+    @XStreamAlias("PopupScene")
+    private String popupScene;
+  }
+
 
   public static WxMaMessage fromXml(String xml) {
     return XStreamTransformer.fromXml(WxMaMessage.class, xml);
@@ -201,7 +274,15 @@ public class WxMaMessage implements Serializable {
   }
 
   public static WxMaMessage fromJson(String json) {
-    return WxMaGsonBuilder.create().fromJson(json, WxMaMessage.class);
+    WxMaMessage wxMaMessage = WxMaGsonBuilder.create().fromJson(json, WxMaMessage.class);
+    /**
+     * 订阅消息事件推送 当小程序只订阅了一个模板，并且服务器的数据推送的消息格式是JSON的时候，实际的推送数据和官网文档不一致，这里做一个兼容
+     */
+    if (wxMaMessage.oneSubscribeMsgInJson != null) {
+      wxMaMessage.getSubscribeMsgPopupEvent().add(wxMaMessage.oneSubscribeMsgInJson);
+      wxMaMessage.oneSubscribeMsgInJson = null;
+    }
+    return wxMaMessage;
   }
 
   public static WxMaMessage fromEncryptedJson(String encryptedJson, WxMaConfig config) {
